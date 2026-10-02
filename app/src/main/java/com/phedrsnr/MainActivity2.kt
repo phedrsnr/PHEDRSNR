@@ -316,10 +316,24 @@ class MainActivity2 : AppCompatActivity() {
 
     private fun triggerAlarmAndNotification(zoneName: String, status: String, timeNote: String) {
         try {
-            val alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            val ringtone = RingtoneManager.getRingtone(applicationContext, alertUri)
-            ringtone.play()
+            // 5 minute cooldown logic using SharedPreferences
+            val prefs = getSharedPreferences("phed_alarm_prefs", Context.MODE_PRIVATE)
+            val lastAlarmTime = prefs.getLong("last_alarm_time", 0L)
+            val currentTime = System.currentTimeMillis()
+            val fiveMinutesInMillis = 5 * 60 * 1000L // 5 minute
+
+            if (currentTime - lastAlarmTime >= fiveMinutesInMillis) {
+                // Agar 5 minute se jyada ho chuke hain tabhi alarm bajao
+                val alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                val ringtone = RingtoneManager.getRingtone(applicationContext, alertUri)
+                ringtone.play()
+
+                // Naya time save kar lo
+                prefs.edit().putLong("last_alarm_time", currentTime).apply()
+            }
+
+
 
             val builder = NotificationCompat.Builder(this, "phed_supply_channel")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
