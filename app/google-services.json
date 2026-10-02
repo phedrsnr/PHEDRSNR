@@ -1,0 +1,49 @@
+{
+  "project_info": {
+    "project_number": "966670134606",
+    "firebase_url": "https://phed-rsnr-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "phed-rsnr",
+    "storage_bucket": "phed-rsnr.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:966670134606:android:c9fbb68186590e3088821f",
+        "android_client_info": {
+          "package_name": "com.phedrsnr"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDTTjxRI3hkO4hz8FQuncwqEJKnCFl2ilk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:966670134606:android:4e93e66f3550873888821f",
+        "android_client_info": {
+          "package_name": "com.phedrsnr.admin"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDTTjxRI3hkO4hz8FQuncwqEJKnCFl2ilk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

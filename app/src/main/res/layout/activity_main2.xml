@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#101927"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- Title -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="💧 रायसिंहनगर पेयजल सप्लाई"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginBottom="16dp"
+            android:text="PHED Public Service Portal"
+            android:textColor="#90CAF9"
+            android:textSize="13sp" />
+
+        <!-- Top Action Buttons -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:weightSum="2">
+
+            <Button
+                android:id="@+id/btnCallHelpline"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:backgroundTint="#00897B"
+                android:text="📞 हेल्पलाइन"
+                android:textColor="#FFFFFF" />
+
+            <Button
+                android:id="@+id/btnOpenLocation"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:backgroundTint="#FB8C00"
+                android:text="📍 ऑफिस लोकेशन"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
+
+        <!-- Area Status & Alarm Section -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="#1E293B"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🔔 अपने क्षेत्र का सप्लाई स्टेटस / अलार्म"
+                android:textColor="#FFD54F"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <Spinner
+                android:id="@+id/spTanki"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="8dp"
+                android:background="#334155" />
+
+            <Spinner
+                android:id="@+id/spZone"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="8dp"
+                android:background="#334155" />
+
+            <Button
+                android:id="@+id/btnSetAlarmZone"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:backgroundTint="#E65100"
+                android:text="⏰ चुने गए क्षेत्र का स्टेटस देखें / सेट करें"
+                android:textColor="#FFFFFF" />
+
+            <TextView
+                android:id="@+id/tvSelectedZoneStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="#81C784"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <!-- Complaint Status Tracking -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="#1E293B"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🔍 शिकायत का स्टेटस ट्रैक करें"
+                android:textColor="#90CAF9"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <EditText
+                    android:id="@+id/etTrackId"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="Complaint ID दर्ज करें"
+                    android:inputType="number"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#94A3B8" />
+
+                <Button
+                    android:id="@+id/btnTrackComplaint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:backgroundTint="#5E35B1"
+                    android:text="खोजें"
+                    android:textColor="#FFFFFF" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvTrackResult"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="#FFCC80"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <!-- Live Status All Tanks -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="#1E293B"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🚰 लाइव सप्लाई स्थिति (सभी टंकियाँ)"
+                android:textColor="#42A5F5"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvLiveStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="लाइव स्टेटस लोड हो रहा है..."
+                android:textColor="#ECEFF1"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <!-- New Complaint Section -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="24dp"
+            android:background="#1E293B"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="💬 नई समस्या या शिकायत दर्ज करें"
+                android:textColor="#EF5350"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/etCitizenName"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="आपका नाम व वार्ड/पता"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#94A3B8" />
+
+            <EditText
+                android:id="@+id/etCitizenMessage"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="top"
+                android:hint="समस्या का पूरा विवरण लिखें..."
+                android:lines="3"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#94A3B8" />
+
+            <Button
+                android:id="@+id/btnSelectCitizenPhoto"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="#455A64"
+                android:text="📷 लीकेज/गंदा पानी फोटो चुनें"
+                android:textColor="#FFFFFF" />
+
+            <ImageView
+                android:id="@+id/ivCitizenPreview"
+                android:layout_width="match_parent"
+                android:layout_height="180dp"
+                android:layout_marginTop="8dp"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/btnSubmitComplaint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:backgroundTint="#D32F2F"
+                android:text="शिकायत दर्ज करें"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>
