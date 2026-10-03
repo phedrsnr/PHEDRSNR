@@ -1,13 +1,10 @@
 package com.phedrsnr
 
 import android.app.AlertDialog
-import android.app.DownloadManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -23,10 +20,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import com.google.firebase.firestore.FirebaseFirestore
 import java.io.ByteArrayOutputStream
-import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -80,10 +75,10 @@ class MainActivity2 : AppCompatActivity() {
         }
         createNotificationChannel()
 
-        // 2. Auto-Update Check (Crash-safe)
+        // 2. Future Updates Checker (Direct, Safe & Seamless)
         checkForAppUpdate(db)
 
-        // 3. Admin Panel Mapping (टंकी और उसके अंदर के ज़ोन)
+        // 3. Tanki aur Zone Mapping
         val tankiList = listOf(
             "-- टंकी चुनें --",
             "हेडवर्क्स टंकी",
@@ -135,14 +130,12 @@ class MainActivity2 : AppCompatActivity() {
         val tankiAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, tankiList)
         spTanki.adapter = tankiAdapter
 
-        // Saved Zone Display
         val savedTanki = prefs.getString("saved_tanki", "") ?: ""
         val savedZone = prefs.getString("saved_zone", "") ?: ""
         if (savedZone.isNotEmpty()) {
             tvSelectedZoneStatus?.text = "चुना गया क्षेत्र: $savedTanki - $savedZone (अलार्म एक्टिव)"
         }
 
-        // Dropdown selection listener
         spTanki.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val selectedTanki = tankiList[position]
@@ -151,11 +144,9 @@ class MainActivity2 : AppCompatActivity() {
                 spZone.adapter = zoneAdapter
             }
 
-
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        // Save Zone Button
         btnSetAlarmZone.setOnClickListener {
             val selTanki = spTanki.selectedItem?.toString() ?: ""
             val selZone = spZone.selectedItem?.toString() ?: ""
@@ -174,24 +165,42 @@ class MainActivity2 : AppCompatActivity() {
             Toast.makeText(this, "अलार्म ज़ोन सेट हो गया!", Toast.LENGTH_SHORT).show()
         }
 
-        // Live Status Listener
-        db.collection("water_supply").document("current_status")
-            .addSnapshotListener { snapshot, _ ->
-                if (snapshot != null && snapshot.exists()) {
-                    val status = snapshot.getString("status") ?: "अज्ञात"
-                    val activeZone = snapshot.getString("zone") ?: "कोई नहीं"
-                    val note = snapshot.getString("note") ?: ""
+        // 4. Live Supply Status Listener (Aapke Asli 'zones' Collection Se Link)
+        tvLiveStatus?.text = "लाइव स्थिति: डेटा चेक हो रहा है..."
+        db.collection("zones")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    tvLiveStatus?.text = "लाइव स्थिति: लोड करने में समस्या (${error.message})"
+                    return@addSnapshotListener
+                }
 
-                    tvLiveStatus?.text = "वर्तमान स्थिति: $activeZone में $status ($note)"
-
-                    val mySavedZone = prefs.getString("saved_zone", "") ?: ""
-                    if (mySavedZone.isNotEmpty() && activeZone == mySavedZone && status.contains("सप्लाई शुरू")) {
-                        triggerAlarmAndNotification(activeZone, status, note)
+                if (snapshot != null && !snapshot.isEmpty) {
+                    val activeZones = snapshot.documents.filter { doc ->
+                        val st = doc.getString("status") ?: ""
+                        st.contains("चालू") || st.contains("शुरू")
                     }
+
+                    if (activeZones.isNotEmpty()) {
+                        val activeDoc = activeZones.first()
+                        val zoneName = activeDoc.getString("name") ?: ""
+                        val statusText = activeDoc.getString("status") ?: "सप्लाई चालू"
+                        val time = activeDoc.getString("timeNote") ?: ""
+
+                        tvLiveStatus?.text = "वर्तमान स्थिति: $zoneName - $statusText" + if (time.isNotEmpty()) " ($time)" else ""
+
+                        val mySavedZone = prefs.getString("saved_zone", "") ?: ""
+                        if (mySavedZone.isNotEmpty() && zoneName.contains(mySavedZone)) {
+                            triggerAlarmAndNotification(zoneName, statusText, time)
+                        }
+                    } else {
+                        tvLiveStatus?.text = "वर्तमान स्थिति: अभी किसी भी ज़ोन में सप्लाई चालू नहीं है"
+                    }
+                } else {
+                    tvLiveStatus?.text = "वर्तमान स्थिति: कोई ज़ोन डेटा नहीं मिला"
                 }
             }
 
-        // Track Complaint
+        // 5. Track Complaint
         btnTrackComplaint.setOnClickListener {
             val trackId = etTrackId.text.toString().trim()
             if (trackId.isEmpty()) {
@@ -214,7 +223,7 @@ class MainActivity2 : AppCompatActivity() {
                 }
         }
 
-        // Citizen Complaint Actions
+        // 6. Submit Citizen Complaint
         btnSelectCitizenPhoto.setOnClickListener {
             pickImageLauncher.launch("image/*")
         }
@@ -263,7 +272,6 @@ class MainActivity2 : AppCompatActivity() {
                 }
         }
 
-        // Helpline & Location Buttons
         btnCallHelpline.setOnClickListener {
             val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:01507357243"))
             startActivity(intent)
@@ -324,6 +332,7 @@ class MainActivity2 : AppCompatActivity() {
         } catch (_: Exception) {}
     }
 
+    // Auto-Update Function: Bina kisi crash ya download failure ke
     private fun checkForAppUpdate(db: FirebaseFirestore) {
         try {
             db.collection("stats").document("app_update").get()
@@ -344,6 +353,7 @@ class MainActivity2 : AppCompatActivity() {
                                 pInfo.versionCode
                             }
 
+                            // Sirf tabhi aayega jab aap Firebase me version bada karenge
                             if (latestVersion > currentVersion) {
                                 val downloadUrl = doc.getString("downloadUrl") ?: ""
                                 val msg = doc.getString("message") ?: "नया वर्ज़न उपलब्ध है! कृपया अपडेट करें"
@@ -353,7 +363,10 @@ class MainActivity2 : AppCompatActivity() {
                                     .setCancelable(false)
                                     .setPositiveButton("अपडेट करें") { _, _ ->
                                         if (downloadUrl.isNotEmpty()) {
-                                            downloadAndInstallApk(downloadUrl)
+                                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)).apply {
+                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            startActivity(browserIntent)
                                         }
                                     }
                                     .show()
@@ -363,69 +376,8 @@ class MainActivity2 : AppCompatActivity() {
                         e.printStackTrace()
                     }
                 }
-                .addOnFailureListener { e ->
-                    e.printStackTrace()
-                }
         } catch (e: Exception) {
             e.printStackTrace()
-        }
-    }
-
-    private fun downloadAndInstallApk(url: String) {
-        try {
-            val fileName = "phed_update.apk"
-            val destination = File(getExternalFilesDir(null), fileName)
-            if (destination.exists()) destination.delete()
-
-            val request = DownloadManager.Request(Uri.parse(url))
-                .setTitle("PHED App Update")
-                .setDescription("नया वर्ज़न डाउनलोड हो रहा है...")
-                .setDestinationUri(Uri.fromFile(destination))
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
-
-            val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            val downloadId = manager.enqueue(request)
-
-            val onComplete = object : BroadcastReceiver() {
-                override fun onReceive(ctxt: Context?, intent: Intent?) {
-                    val id = intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
-                    if (id == downloadId) {
-                        try {
-                            val apkUri = FileProvider.getUriForFile(
-                                this@MainActivity2,
-                                "com.phedrsnr.provider",
-                                destination
-                            )
-                            val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                                setDataAndType(apkUri, "application/vnd.android.package-archive")
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                            startActivity(installIntent)
-                        } catch (e: Exception) {
-                            Toast.makeText(this@MainActivity2, "अपडेट इंस्टॉल नहीं हो सका: ${e.message}", Toast.LENGTH_LONG).show()
-                        }
-                        try {
-                            unregisterReceiver(this)
-                        } catch (_: Exception) {}
-                    }
-                }
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(
-                    onComplete,
-                    IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-                    Context.RECEIVER_EXPORTED
-                )
-            } else {
-                registerReceiver(
-                    onComplete,
-                    IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-                )
-            }
-        } catch (e: Exception) {
-            Toast.makeText(this, "डाउनलोड शुरू नहीं हो सका: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 }
