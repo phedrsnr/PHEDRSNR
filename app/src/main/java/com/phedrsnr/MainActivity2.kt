@@ -80,10 +80,10 @@ class MainActivity2 : AppCompatActivity() {
         }
         createNotificationChannel()
 
-        // 2. Auto-Update Check
+        // 2. Auto-Update Check (Crash-safe)
         checkForAppUpdate(db)
 
-        // 3. Admin Panel Mapping (टंकी और उसके अंदर के ज़ोन - अपडेटेड)
+        // 3. Admin Panel Mapping (टंकी और उसके अंदर के ज़ोन)
         val tankiList = listOf(
             "-- टंकी चुनें --",
             "हेडवर्क्स टंकी",
@@ -98,7 +98,7 @@ class MainActivity2 : AppCompatActivity() {
                 "रिफ्यूजी ज़ोन",
                 "मण्डी ज़ोन",
                 "शास्त्री कॉलोनी वेयर हाउस जोन",
-                "हांडा कॉलोनी",
+                "ढांडा कॉलोनी",
                 "वाल्मीकि बस्ती",
                 "धानक पार्क ज़ोन",
                 "गुरुद्वारा ज़ोन"
@@ -142,159 +142,141 @@ class MainActivity2 : AppCompatActivity() {
             tvSelectedZoneStatus?.text = "चुना गया क्षेत्र: $savedTanki - $savedZone (अलार्म एक्टिव)"
         }
 
-        // जब यूज़र टंकी चुनेगा तो नीचे वाले Spinner में उसी के ज़ोन आएँगे
+        // Dropdown selection listener
         spTanki.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val selectedTanki = tankiList[position]
-                val currentZones = tankiZoneMap[selectedTanki] ?: listOf("-- ज़ोन चुनें --")
-                val zoneAdapter = ArrayAdapter(this@MainActivity2, android.R.layout.simple_spinner_dropdown_item, currentZones)
+                val zones = tankiZoneMap[selectedTanki] ?: listOf("-- ज़ोन चुनें --")
+                val zoneAdapter = ArrayAdapter(this@MainActivity2, android.R.layout.simple_spinner_dropdown_item, zones)
                 spZone.adapter = zoneAdapter
-
-                // अगर पहले से सेव्ड है तो सेलेक्ट कर दें
-                if (selectedTanki == savedTanki) {
-                    val zoneIdx = currentZones.indexOf(savedZone)
-                    if (zoneIdx >= 0) spZone.setSelection(zoneIdx)
-                }
             }
+
 
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        // बटन क्लिक: अलार्म व ज़ोन सेव करना
+        // Save Zone Button
         btnSetAlarmZone.setOnClickListener {
-            val selectedTanki = spTanki.selectedItem?.toString() ?: ""
-            val selectedZ = spZone.selectedItem?.toString() ?: ""
+            val selTanki = spTanki.selectedItem?.toString() ?: ""
+            val selZone = spZone.selectedItem?.toString() ?: ""
 
-            if (selectedTanki.startsWith("--") || selectedZ.startsWith("--")) {
-                Toast.makeText(this, "कृपया टंकी और ज़ोन दोनों चुनें", Toast.LENGTH_SHORT).show()
+            if (selTanki.startsWith("--") || selZone.startsWith("--")) {
+                Toast.makeText(this, "कृपया टंकी और ज़ोन दोनों चुनें!", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
             prefs.edit()
-                .putString("saved_tanki", selectedTanki)
-                .putString("saved_zone", selectedZ)
+                .putString("saved_tanki", selTanki)
+                .putString("saved_zone", selZone)
                 .apply()
 
-            tvSelectedZoneStatus?.text = "चुना गया क्षेत्र: $selectedTanki - $selectedZ\n(सप्लाई शुरू होने पर अलार्म बजेगा)"
-            Toast.makeText(this, "अलार्म सेट किया गया: $selectedZ", Toast.LENGTH_SHORT).show()
+            tvSelectedZoneStatus?.text = "चुना गया क्षेत्र: $selTanki - $selZone (अलार्म एक्टिव)"
+            Toast.makeText(this, "अलार्म ज़ोन सेट हो गया!", Toast.LENGTH_SHORT).show()
         }
 
-        // 4. Helpline & Location
-        btnCallHelpline.setOnClickListener {
-            startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:01507357243")))
-        }
+        // Live Status Listener
+        db.collection("water_supply").document("current_status")
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot != null && snapshot.exists()) {
+                    val status = snapshot.getString("status") ?: "अज्ञात"
+                    val activeZone = snapshot.getString("zone") ?: "कोई नहीं"
+                    val note = snapshot.getString("note") ?: ""
 
-        btnOpenLocation.setOnClickListener {
-            val mapIntent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=PHED+Office+Raisinghnagar")).apply {
-                setPackage("com.google.android.apps.maps")
+                    tvLiveStatus?.text = "वर्तमान स्थिति: $activeZone में $status ($note)"
+
+                    val mySavedZone = prefs.getString("saved_zone", "") ?: ""
+                    if (mySavedZone.isNotEmpty() && activeZone == mySavedZone && status.contains("सप्लाई शुरू")) {
+                        triggerAlarmAndNotification(activeZone, status, note)
+                    }
+                }
             }
-            try {
-                startActivity(mapIntent)
-            } catch (e: Exception) {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com/?q=PHED+Office+Raisinghnagar")))
+
+        // Track Complaint
+        btnTrackComplaint.setOnClickListener {
+            val trackId = etTrackId.text.toString().trim()
+            if (trackId.isEmpty()) {
+                Toast.makeText(this, "कृपया शिकायत क्रमांक दर्ज करें!", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
+
+            db.collection("complaints").document(trackId).get()
+                .addOnSuccessListener { doc ->
+                    if (doc != null && doc.exists()) {
+                        val st = doc.getString("status") ?: "Pending"
+                        val reply = doc.getString("reply") ?: "जांच जारी है"
+                        tvTrackResult?.text = "स्थिति: $st\nविभाग का जवाब: $reply"
+                    } else {
+                        tvTrackResult?.text = "इस क्रमांक से कोई शिकायत नहीं मिली।"
+                    }
+                }
+                .addOnFailureListener {
+                    tvTrackResult?.text = "शिकायत खोजने में त्रुटि हुई।"
+                }
         }
 
-        // 5. Complaint Photo
+        // Citizen Complaint Actions
         btnSelectCitizenPhoto.setOnClickListener {
             pickImageLauncher.launch("image/*")
         }
 
-        // 6. Submit Complaint
         btnSubmitComplaint.setOnClickListener {
-            val citizenName = etCitizenName.text.toString().trim()
-            val message = etCitizenMessage.text.toString().trim()
+            val name = etCitizenName.text.toString().trim()
+            val msg = etCitizenMessage.text.toString().trim()
 
-            if (message.isEmpty()) {
-                Toast.makeText(this, "कृपया समस्या का विवरण लिखें", Toast.LENGTH_SHORT).show()
+            if (name.isEmpty() || msg.isEmpty()) {
+                Toast.makeText(this, "कृपया नाम और समस्या का विवरण लिखें!", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
-            val trackingId = (1000..9999).random().toString()
+            var base64Image = ""
+            selectedBitmap?.let { bmp ->
+                val stream = ByteArrayOutputStream()
+                bmp.compress(Bitmap.CompressFormat.JPEG, 70, stream)
+                base64Image = Base64.encodeToString(stream.toByteArray(), Base64.DEFAULT)
+            }
+
+            val complaintId = "PHED-" + System.currentTimeMillis().toString().takeLast(6)
             val complaintData = hashMapOf(
-                "trackingId" to trackingId,
-                "name" to if (citizenName.isEmpty()) "नागरिक" else citizenName,
-                "message" to message,
-                "timestamp" to SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date()),
-                "status" to "लंबित (Pending)"
+                "complaintId" to complaintId,
+                "name" to name,
+                "message" to msg,
+                "image" to base64Image,
+                "status" to "Pending",
+                "reply" to "",
+                "timestamp" to SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
             )
 
-            selectedBitmap?.let { bitmap ->
-                val baos = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 70, baos)
-                complaintData["photoBase64"] = Base64.encodeToString(baos.toByteArray(), Base64.DEFAULT)
-            }
-
-            db.collection("citizen_complaints").document(trackingId)
-                .set(complaintData)
+            db.collection("complaints").document(complaintId).set(complaintData)
                 .addOnSuccessListener {
-                    AlertDialog.Builder(this)
-                        .setTitle("शिकायत दर्ज सफल!")
-                        .setMessage("आपकी शिकायत ID है: $trackingId\nकृपया इसे सुरक्षित नोट कर लें।")
-                        .setPositiveButton("OK", null)
-                        .show()
                     etCitizenName.text.clear()
                     etCitizenMessage.text.clear()
-                    ivCitizenPreview.setImageBitmap(null)
                     ivCitizenPreview.visibility = View.GONE
                     selectedBitmap = null
+                    AlertDialog.Builder(this)
+                        .setTitle("शिकायत दर्ज सफल")
+                        .setMessage("आपकी शिकायत दर्ज कर ली गई है!\nशिकायत क्रमांक: $complaintId\n(कृपया इस नंबर को सुरक्षित रख लें)")
+                        .setPositiveButton("ठीक है", null)
+                        .show()
                 }
                 .addOnFailureListener {
-                    Toast.makeText(this, "शिकायत दर्ज करने में विफल: ${it.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "शिकायत दर्ज करने में विफल!", Toast.LENGTH_SHORT).show()
                 }
         }
 
-        // 7. Track Complaint
-        btnTrackComplaint.setOnClickListener {
-            val id = etTrackId.text.toString().trim()
-            if (id.isEmpty()) {
-                Toast.makeText(this, "कृपया ट्रैकिंग ID दर्ज करें", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-
-            db.collection("citizen_complaints").document(id).get()
-                .addOnSuccessListener { doc ->
-                    if (doc != null && doc.exists()) {
-                        val status = doc.getString("status") ?: "प्रक्रियाधीन"
-                        val time = doc.getString("timestamp") ?: ""
-                        tvTrackResult?.text = "शिकायत स्थिति: $status\nदिनांक: $time"
-                    } else {
-                        tvTrackResult?.text = "कोई शिकायत नहीं मिली। कृपया सही ID डालें।"
-                    }
-                }
-                .addOnFailureListener {
-                    tvTrackResult?.text = "जाँच करने में समस्या आई।"
-                }
+        // Helpline & Location Buttons
+        btnCallHelpline.setOnClickListener {
+            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:01507357243"))
+            startActivity(intent)
         }
 
-        // 8. Live Zones Listener & Trigger Alarm
-        db.collection("zones").addSnapshotListener { snapshot, _ ->
-            if (snapshot != null) {
-                val sb = StringBuilder()
-                val currentSavedZone = prefs.getString("saved_zone", "") ?: ""
-
-                for (doc in snapshot.documents) {
-                    val name = doc.getString("name") ?: ""
-                    val status = doc.getString("status") ?: "बंद"
-                    val timeNote = doc.getString("timeNote") ?: ""
-
-                    sb.append("💧 ").append(name).append(": ").append(status)
-                    if (timeNote.isNotEmpty()) sb.append(" (").append(timeNote).append(")")
-                    sb.append("\n\n")
-
-                    // Alarm check (Matching zone name or part of it)
-                    if (currentSavedZone.isNotEmpty() && name.contains(currentSavedZone, ignoreCase = true) &&
-                        (status.contains("चालू") || status.contains("सप्लाई शुरू"))
-                    ) {
-                        triggerAlarmAndNotification(name, status, timeNote)
-                    }
-                }
-
-                if (sb.isNotEmpty()) {
-                    tvLiveStatus?.text = sb.toString().trim()
-                } else {
-                    tvLiveStatus?.text = "वर्तमान में कोई लाइव सप्लाई अपडेट नहीं है।"
-                }
+        btnOpenLocation.setOnClickListener {
+            val gmmIntentUri = Uri.parse("geo:0,0?q=PHED+Office+Raisinghnagar")
+            val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
+            mapIntent.setPackage("com.google.android.apps.maps")
+            if (mapIntent.resolveActivity(packageManager) != null) {
+                startActivity(mapIntent)
+            } else {
+                startActivity(Intent(Intent.ACTION_VIEW, gmmIntentUri))
             }
         }
     }
@@ -316,24 +298,19 @@ class MainActivity2 : AppCompatActivity() {
 
     private fun triggerAlarmAndNotification(zoneName: String, status: String, timeNote: String) {
         try {
-            // 5 minute cooldown logic using SharedPreferences
             val prefs = getSharedPreferences("phed_alarm_prefs", Context.MODE_PRIVATE)
             val lastAlarmTime = prefs.getLong("last_alarm_time", 0L)
             val currentTime = System.currentTimeMillis()
-            val fiveMinutesInMillis = 5 * 60 * 1000L // 5 minute
+            val fiveMinutesInMillis = 5 * 60 * 1000L
 
             if (currentTime - lastAlarmTime >= fiveMinutesInMillis) {
-                // Agar 5 minute se jyada ho chuke hain tabhi alarm bajao
                 val alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                     ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
                 val ringtone = RingtoneManager.getRingtone(applicationContext, alertUri)
                 ringtone.play()
 
-                // Naya time save kar lo
                 prefs.edit().putLong("last_alarm_time", currentTime).apply()
             }
-
-
 
             val builder = NotificationCompat.Builder(this, "phed_supply_channel")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
@@ -344,77 +321,111 @@ class MainActivity2 : AppCompatActivity() {
 
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.notify(1001, builder.build())
-        } catch (e: Exception) {
-            // Ignore
-        }
+        } catch (_: Exception) {}
     }
 
     private fun checkForAppUpdate(db: FirebaseFirestore) {
-        db.collection("stats").document("app_update").get()
-            .addOnSuccessListener { doc ->
-                if (doc != null && doc.exists()) {
-                    val latestVersion = doc.getLong("latestVersionCode")?.toInt() ?: 1
-                    val currentVersion = packageManager.getPackageInfo(packageName, 0).versionCode
-
-                    if (latestVersion > currentVersion) {
-                        val downloadUrl = doc.getString("downloadUrl") ?: ""
-                        val msg = doc.getString("message") ?: "नया वर्ज़न उपलब्ध है! कृपया अपडेट करें।"
-                        AlertDialog.Builder(this)
-                            .setTitle("🚀 नया अपडेट उपलब्ध है!")
-                            .setMessage(msg)
-                            .setCancelable(false)
-                            .setPositiveButton("अपडेट करें") { _, _ ->
-                                downloadAndInstallApk(downloadUrl)
+        try {
+            db.collection("stats").document("app_update").get()
+                .addOnSuccessListener { doc ->
+                    try {
+                        if (doc != null && doc.exists()) {
+                            val latestVersion = doc.getLong("latestVersionCode")?.toInt() ?: 1
+                            val pInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+                            } else {
+                                @Suppress("DEPRECATION")
+                                packageManager.getPackageInfo(packageName, 0)
                             }
-                            .show()
+                            val currentVersion = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                pInfo.longVersionCode.toInt()
+                            } else {
+                                @Suppress("DEPRECATION")
+                                pInfo.versionCode
+                            }
+
+                            if (latestVersion > currentVersion) {
+                                val downloadUrl = doc.getString("downloadUrl") ?: ""
+                                val msg = doc.getString("message") ?: "नया वर्ज़न उपलब्ध है! कृपया अपडेट करें"
+                                AlertDialog.Builder(this)
+                                    .setTitle("🚀 नया अपडेट उपलब्ध है!")
+                                    .setMessage(msg)
+                                    .setCancelable(false)
+                                    .setPositiveButton("अपडेट करें") { _, _ ->
+                                        if (downloadUrl.isNotEmpty()) {
+                                            downloadAndInstallApk(downloadUrl)
+                                        }
+                                    }
+                                    .show()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                 }
-            }
+                .addOnFailureListener { e ->
+                    e.printStackTrace()
+                }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     private fun downloadAndInstallApk(url: String) {
-        val fileName = "phed_update.apk"
-        val destination = File(getExternalFilesDir(null), fileName)
-        if (destination.exists()) destination.delete()
+        try {
+            val fileName = "phed_update.apk"
+            val destination = File(getExternalFilesDir(null), fileName)
+            if (destination.exists()) destination.delete()
 
-        val request = DownloadManager.Request(Uri.parse(url))
-            .setTitle("PHED App Update")
-            .setDescription("नया वर्ज़न डाउनलोड हो रहा है...")
-            .setDestinationUri(Uri.fromFile(destination))
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+            val request = DownloadManager.Request(Uri.parse(url))
+                .setTitle("PHED App Update")
+                .setDescription("नया वर्ज़न डाउनलोड हो रहा है...")
+                .setDestinationUri(Uri.fromFile(destination))
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
 
-        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val downloadId = manager.enqueue(request)
+            val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            val downloadId = manager.enqueue(request)
 
-        val onComplete = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                val id = intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-                if (id == downloadId) {
-                    installDownloadedApk(destination)
-                    unregisterReceiver(this)
+            val onComplete = object : BroadcastReceiver() {
+                override fun onReceive(ctxt: Context?, intent: Intent?) {
+                    val id = intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+                    if (id == downloadId) {
+                        try {
+                            val apkUri = FileProvider.getUriForFile(
+                                this@MainActivity2,
+                                "com.phedrsnr.provider",
+                                destination
+                            )
+                            val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(apkUri, "application/vnd.android.package-archive")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(installIntent)
+                        } catch (e: Exception) {
+                            Toast.makeText(this@MainActivity2, "अपडेट इंस्टॉल नहीं हो सका: ${e.message}", Toast.LENGTH_LONG).show()
+                        }
+                        try {
+                            unregisterReceiver(this)
+                        } catch (_: Exception) {}
+                    }
                 }
             }
-        }
 
-        ContextCompat.registerReceiver(
-            this,
-            onComplete,
-            IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-            ContextCompat.RECEIVER_EXPORTED
-        )
-    }
-
-    private fun installDownloadedApk(file: File) {
-        try {
-            val apkUri = FileProvider.getUriForFile(this, "$packageName.provider", file)
-            val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(apkUri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(
+                    onComplete,
+                    IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+                    Context.RECEIVER_EXPORTED
+                )
+            } else {
+                registerReceiver(
+                    onComplete,
+                    IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+                )
             }
-            startActivity(installIntent)
         } catch (e: Exception) {
-            Toast.makeText(this, "इन्स्टॉलेशन में समस्या: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "डाउनलोड शुरू नहीं हो सका: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 }
