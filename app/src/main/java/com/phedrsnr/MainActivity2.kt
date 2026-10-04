@@ -57,7 +57,6 @@ class MainActivity2 : AppCompatActivity() {
         val tvSelectedZoneStatus = findViewById<TextView?>(R.id.tvSelectedZoneStatus)
         val tvLiveStatus = findViewById<TextView?>(R.id.tvLiveStatus)
 
-        // Multiple zones scroll karke dekhne ke liye
         tvLiveStatus?.movementMethod = ScrollingMovementMethod()
 
         val etTrackId = findViewById<EditText>(R.id.etTrackId)
@@ -76,7 +75,6 @@ class MainActivity2 : AppCompatActivity() {
         val db = FirebaseFirestore.getInstance()
         val prefs = getSharedPreferences("PHED_PREFS", Context.MODE_PRIVATE)
 
-        // Notification Permission & Channel
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
@@ -85,7 +83,6 @@ class MainActivity2 : AppCompatActivity() {
         createNotificationChannel()
         checkForAppUpdate(db)
 
-        // Sabhi Tankiyan aur Unke Zones
         val tankiList = listOf(
             "-- टंकी चुनें --",
             "हेडवर्क्स टंकी",
@@ -154,7 +151,6 @@ class MainActivity2 : AppCompatActivity() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        // Zone Set Button Listener
         btnSetAlarmZone.setOnClickListener {
             val selTanki = spTanki.selectedItem?.toString() ?: ""
             val selZone = spZone.selectedItem?.toString() ?: ""
@@ -171,14 +167,12 @@ class MainActivity2 : AppCompatActivity() {
 
             tvSelectedZoneStatus?.text = "जाँच हो रही है..."
 
-            // Turant Firebase se check karein
             db.collection("zones").get().addOnSuccessListener { snapshot ->
                 var found = false
                 val searchKey = normalizeZoneName(selZone)
 
                 for (doc in snapshot.documents) {
                     val rawName = doc.getString("name") ?: doc.id
-                    val docTank = doc.getString("tank") ?: ""
                     val status = doc.getString("status") ?: ""
                     val time = doc.getString("timeNote") ?: ""
 
@@ -201,7 +195,7 @@ class MainActivity2 : AppCompatActivity() {
             }
         }
 
-        // LIVE SUPPLY STATUS LISTENER (Sabhi Zones aur Tankiyon ko Scan Karega)
+        // 4. LIVE SUPPLY STATUS LISTENER (Separate Icons for Closed, Next Time, Technical, and Active)
         tvLiveStatus?.text = "लाइव स्थिति लोड हो रही है..."
         db.collection("zones")
             .addSnapshotListener { snapshot, error ->
@@ -211,45 +205,54 @@ class MainActivity2 : AppCompatActivity() {
                 }
 
                 if (snapshot != null && !snapshot.isEmpty) {
-                    val activeList = mutableListOf<String>()
+                    val statusList = mutableListOf<String>()
                     val mySavedZone = prefs.getString("saved_zone", "") ?: ""
                     val searchKey = if (mySavedZone.isNotEmpty()) normalizeZoneName(mySavedZone) else ""
-                    var isMyZoneActive = false
+                    var triggerAlarm = false
                     var matchedTime = ""
 
                     for (doc in snapshot.documents) {
-                        // 1. Name ya ID nikalein
                         val zoneName = doc.getString("name") ?: doc.id
                         val docTank = doc.getString("tank") ?: ""
-                        val statusText = doc.getString("status") ?: ""
-                        val time = doc.getString("timeNote") ?: ""
+                        val statusText = doc.getString("status")?.trim() ?: ""
+                        val time = doc.getString("timeNote")?.trim() ?: ""
 
-                        // 2. Agar status 'चालू' ya 'शुरू' hai
-                        if (statusText.contains("चालू") || statusText.contains("शुरू")) {
+                        if (statusText.isNotEmpty()) {
                             val displayHeader = if (docTank.isNotEmpty() && !zoneName.contains(docTank)) "$docTank - $zoneName" else zoneName
-                            val line = "💧 $displayHeader: $statusText" + if (time.isNotEmpty()) " ($time)" else ""
-                            activeList.add(line)
 
-                            // 3. User ke chune huye zone se match
+                            // Alag-alag icons ka rule:
+                            val icon = when {
+                                statusText.contains("चालू") || statusText.contains("शुरू") -> "💧"
+                                statusText.contains("तकनीकी") || statusText.contains("खराबी") || statusText.contains("समस्या") || statusText.contains("लीकेज") || statusText.contains("फाल्ट") || statusText.contains("बाधित") -> "⚠️"
+                                statusText.contains("बंद") || statusText.contains("समाप्त") || statusText.contains("ऑफ") -> "🛑"
+                                statusText.contains("आगामी") || statusText.contains("अगला") || statusText.contains("समय") || statusText.contains("बजे") -> "⏰"
+                                else -> "ℹ️"
+                            }
+
+                            val line = "$icon $displayHeader: $statusText" + if (time.isNotEmpty()) " ($time)" else ""
+                            statusList.add(line)
+
                             if (searchKey.isNotEmpty()) {
                                 val normName = normalizeZoneName(zoneName)
                                 val normId = normalizeZoneName(doc.id)
                                 if (normName.contains(searchKey) || searchKey.contains(normName) || normId.contains(searchKey)) {
-                                    isMyZoneActive = true
-                                    matchedTime = time
+                                    if (statusText.contains("चालू") || statusText.contains("शुरू")) {
+                                        triggerAlarm = true
+                                        matchedTime = time
+                                    }
                                 }
                             }
                         }
                     }
 
-                    if (activeList.isNotEmpty()) {
-                        tvLiveStatus?.text = "🔴 चालू सप्लाई स्थिति:\n\n" + activeList.joinToString("\n\n")
+                    if (statusList.isNotEmpty()) {
+                        tvLiveStatus?.text = "📢 लाइव सप्लाई व तकनीकी अपडेट:\n\n" + statusList.joinToString("\n\n")
 
-                        if (isMyZoneActive) {
+                        if (triggerAlarm) {
                             triggerAlarmAndNotification(mySavedZone, "सप्लाई चालू", matchedTime)
                         }
                     } else {
-                        tvLiveStatus?.text = "वर्तमान स्थिति: अभी किसी भी टंकी/ज़ोन में सप्लाई चालू नहीं है।"
+                        tvLiveStatus?.text = "वर्तमान स्थिति: अभी कोई नया अपडेट नहीं है।"
                     }
                 } else {
                     tvLiveStatus?.text = "वर्तमान स्थिति: कोई ज़ोन डेटा नहीं मिला"
@@ -279,7 +282,7 @@ class MainActivity2 : AppCompatActivity() {
                 }
         }
 
-        // Submit Complaint (Optimized Image Compression)
+        // Submit Complaint
         btnSelectCitizenPhoto.setOnClickListener {
             pickImageLauncher.launch("image/*")
         }
@@ -333,7 +336,7 @@ class MainActivity2 : AppCompatActivity() {
         }
 
         btnCallHelpline.setOnClickListener {
-            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:01507357243"))
+            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:181"))
             startActivity(intent)
         }
 
@@ -349,7 +352,6 @@ class MainActivity2 : AppCompatActivity() {
         }
     }
 
-    // Zone Matching Helper Function (Hindi & English Sabhi Ko Match Karega)
     private fun normalizeZoneName(input: String): String {
         return input.lowercase(Locale.ROOT)
             .replace("टंकी", "")
