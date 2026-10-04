@@ -8,10 +8,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.text.method.ScrollingMovementMethod
 import android.util.Base64
 import android.view.View
 import android.widget.*
@@ -31,11 +33,16 @@ class MainActivity2 : AppCompatActivity() {
 
     private val pickImageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let {
-            val inputStream = contentResolver.openInputStream(it)
-            selectedBitmap = BitmapFactory.decodeStream(inputStream)
-            findViewById<ImageView>(R.id.ivCitizenPreview).apply {
-                setImageBitmap(selectedBitmap)
-                visibility = View.VISIBLE
+            try {
+                val inputStream = contentResolver.openInputStream(it)
+                val originalBitmap = BitmapFactory.decodeStream(inputStream)
+                selectedBitmap = Bitmap.createScaledBitmap(originalBitmap, 480, 640, true)
+                findViewById<ImageView>(R.id.ivCitizenPreview).apply {
+                    setImageBitmap(selectedBitmap)
+                    visibility = View.VISIBLE
+                }
+            } catch (e: Exception) {
+                Toast.makeText(this, "फोटो लोड करने में समस्या हुई", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -44,12 +51,14 @@ class MainActivity2 : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main2)
 
-        // Views Bindings
         val spTanki = findViewById<Spinner>(R.id.spTanki)
         val spZone = findViewById<Spinner>(R.id.spZone)
         val btnSetAlarmZone = findViewById<Button>(R.id.btnSetAlarmZone)
         val tvSelectedZoneStatus = findViewById<TextView?>(R.id.tvSelectedZoneStatus)
         val tvLiveStatus = findViewById<TextView?>(R.id.tvLiveStatus)
+
+        // Multiple zones scroll karke dekhne ke liye
+        tvLiveStatus?.movementMethod = ScrollingMovementMethod()
 
         val etTrackId = findViewById<EditText>(R.id.etTrackId)
         val btnTrackComplaint = findViewById<Button>(R.id.btnTrackComplaint)
@@ -67,18 +76,16 @@ class MainActivity2 : AppCompatActivity() {
         val db = FirebaseFirestore.getInstance()
         val prefs = getSharedPreferences("PHED_PREFS", Context.MODE_PRIVATE)
 
-        // 1. Android 13+ Notification Permission & Channel
+        // Notification Permission & Channel
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
             }
         }
         createNotificationChannel()
-
-        // 2. Future Updates Checker (Direct, Safe & Seamless)
         checkForAppUpdate(db)
 
-        // 3. Tanki aur Zone Mapping
+        // Sabhi Tankiyan aur Unke Zones
         val tankiList = listOf(
             "-- टंकी चुनें --",
             "हेडवर्क्स टंकी",
@@ -93,7 +100,7 @@ class MainActivity2 : AppCompatActivity() {
                 "रिफ्यूजी ज़ोन",
                 "मण्डी ज़ोन",
                 "शास्त्री कॉलोनी वेयर हाउस जोन",
-                "ढांडा कॉलोनी",
+                "हाण्डा कॉलोनी",
                 "वाल्मीकि बस्ती",
                 "धानक पार्क ज़ोन",
                 "गुरुद्वारा ज़ोन"
@@ -147,6 +154,7 @@ class MainActivity2 : AppCompatActivity() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
+        // Zone Set Button Listener
         btnSetAlarmZone.setOnClickListener {
             val selTanki = spTanki.selectedItem?.toString() ?: ""
             val selZone = spZone.selectedItem?.toString() ?: ""
@@ -161,46 +169,94 @@ class MainActivity2 : AppCompatActivity() {
                 .putString("saved_zone", selZone)
                 .apply()
 
-            tvSelectedZoneStatus?.text = "चुना गया क्षेत्र: $selTanki - $selZone (अलार्म एक्टिव)"
-            Toast.makeText(this, "अलार्म ज़ोन सेट हो गया!", Toast.LENGTH_SHORT).show()
+            tvSelectedZoneStatus?.text = "जाँच हो रही है..."
+
+            // Turant Firebase se check karein
+            db.collection("zones").get().addOnSuccessListener { snapshot ->
+                var found = false
+                val searchKey = normalizeZoneName(selZone)
+
+                for (doc in snapshot.documents) {
+                    val rawName = doc.getString("name") ?: doc.id
+                    val docTank = doc.getString("tank") ?: ""
+                    val status = doc.getString("status") ?: ""
+                    val time = doc.getString("timeNote") ?: ""
+
+                    val normDocName = normalizeZoneName(rawName)
+                    val normDocId = normalizeZoneName(doc.id)
+
+                    if (normDocName.contains(searchKey) || searchKey.contains(normDocName) || normDocId.contains(searchKey)) {
+                        tvSelectedZoneStatus?.text = "चुना गया: $selTanki - $selZone\nस्थिति: $status" + if (time.isNotEmpty()) " ($time)" else ""
+                        found = true
+
+                        if (status.contains("चालू") || status.contains("शुरू")) {
+                            triggerAlarmAndNotification(selZone, status, time)
+                        }
+                        break
+                    }
+                }
+                if (!found) {
+                    tvSelectedZoneStatus?.text = "चुना गया: $selTanki - $selZone\nस्थिति: अभी सप्लाई बंद है (अलार्म सेट)"
+                }
+            }
         }
 
-        // 4. Live Supply Status Listener (Aapke Asli 'zones' Collection Se Link)
-        tvLiveStatus?.text = "लाइव स्थिति: डेटा चेक हो रहा है..."
+        // LIVE SUPPLY STATUS LISTENER (Sabhi Zones aur Tankiyon ko Scan Karega)
+        tvLiveStatus?.text = "लाइव स्थिति लोड हो रही है..."
         db.collection("zones")
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    tvLiveStatus?.text = "लाइव स्थिति: लोड करने में समस्या (${error.message})"
+                    tvLiveStatus?.text = "लाइव स्थिति: लोड में समस्या (${error.localizedMessage})"
                     return@addSnapshotListener
                 }
 
                 if (snapshot != null && !snapshot.isEmpty) {
-                    val activeZones = snapshot.documents.filter { doc ->
-                        val st = doc.getString("status") ?: ""
-                        st.contains("चालू") || st.contains("शुरू")
+                    val activeList = mutableListOf<String>()
+                    val mySavedZone = prefs.getString("saved_zone", "") ?: ""
+                    val searchKey = if (mySavedZone.isNotEmpty()) normalizeZoneName(mySavedZone) else ""
+                    var isMyZoneActive = false
+                    var matchedTime = ""
+
+                    for (doc in snapshot.documents) {
+                        // 1. Name ya ID nikalein
+                        val zoneName = doc.getString("name") ?: doc.id
+                        val docTank = doc.getString("tank") ?: ""
+                        val statusText = doc.getString("status") ?: ""
+                        val time = doc.getString("timeNote") ?: ""
+
+                        // 2. Agar status 'चालू' ya 'शुरू' hai
+                        if (statusText.contains("चालू") || statusText.contains("शुरू")) {
+                            val displayHeader = if (docTank.isNotEmpty() && !zoneName.contains(docTank)) "$docTank - $zoneName" else zoneName
+                            val line = "💧 $displayHeader: $statusText" + if (time.isNotEmpty()) " ($time)" else ""
+                            activeList.add(line)
+
+                            // 3. User ke chune huye zone se match
+                            if (searchKey.isNotEmpty()) {
+                                val normName = normalizeZoneName(zoneName)
+                                val normId = normalizeZoneName(doc.id)
+                                if (normName.contains(searchKey) || searchKey.contains(normName) || normId.contains(searchKey)) {
+                                    isMyZoneActive = true
+                                    matchedTime = time
+                                }
+                            }
+                        }
                     }
 
-                    if (activeZones.isNotEmpty()) {
-                        val activeDoc = activeZones.first()
-                        val zoneName = activeDoc.getString("name") ?: ""
-                        val statusText = activeDoc.getString("status") ?: "सप्लाई चालू"
-                        val time = activeDoc.getString("timeNote") ?: ""
+                    if (activeList.isNotEmpty()) {
+                        tvLiveStatus?.text = "🔴 चालू सप्लाई स्थिति:\n\n" + activeList.joinToString("\n\n")
 
-                        tvLiveStatus?.text = "वर्तमान स्थिति: $zoneName - $statusText" + if (time.isNotEmpty()) " ($time)" else ""
-
-                        val mySavedZone = prefs.getString("saved_zone", "") ?: ""
-                        if (mySavedZone.isNotEmpty() && zoneName.contains(mySavedZone)) {
-                            triggerAlarmAndNotification(zoneName, statusText, time)
+                        if (isMyZoneActive) {
+                            triggerAlarmAndNotification(mySavedZone, "सप्लाई चालू", matchedTime)
                         }
                     } else {
-                        tvLiveStatus?.text = "वर्तमान स्थिति: अभी किसी भी ज़ोन में सप्लाई चालू नहीं है"
+                        tvLiveStatus?.text = "वर्तमान स्थिति: अभी किसी भी टंकी/ज़ोन में सप्लाई चालू नहीं है।"
                     }
                 } else {
                     tvLiveStatus?.text = "वर्तमान स्थिति: कोई ज़ोन डेटा नहीं मिला"
                 }
             }
 
-        // 5. Track Complaint
+        // Track Complaint
         btnTrackComplaint.setOnClickListener {
             val trackId = etTrackId.text.toString().trim()
             if (trackId.isEmpty()) {
@@ -212,7 +268,7 @@ class MainActivity2 : AppCompatActivity() {
                 .addOnSuccessListener { doc ->
                     if (doc != null && doc.exists()) {
                         val st = doc.getString("status") ?: "Pending"
-                        val reply = doc.getString("reply") ?: "जांच जारी है"
+                        val reply = doc.getString("reply") ?: "जाँच जारी है"
                         tvTrackResult?.text = "स्थिति: $st\nविभाग का जवाब: $reply"
                     } else {
                         tvTrackResult?.text = "इस क्रमांक से कोई शिकायत नहीं मिली।"
@@ -223,7 +279,7 @@ class MainActivity2 : AppCompatActivity() {
                 }
         }
 
-        // 6. Submit Citizen Complaint
+        // Submit Complaint (Optimized Image Compression)
         btnSelectCitizenPhoto.setOnClickListener {
             pickImageLauncher.launch("image/*")
         }
@@ -240,7 +296,7 @@ class MainActivity2 : AppCompatActivity() {
             var base64Image = ""
             selectedBitmap?.let { bmp ->
                 val stream = ByteArrayOutputStream()
-                bmp.compress(Bitmap.CompressFormat.JPEG, 70, stream)
+                bmp.compress(Bitmap.CompressFormat.JPEG, 60, stream)
                 base64Image = Base64.encodeToString(stream.toByteArray(), Base64.DEFAULT)
             }
 
@@ -267,8 +323,12 @@ class MainActivity2 : AppCompatActivity() {
                         .setPositiveButton("ठीक है", null)
                         .show()
                 }
-                .addOnFailureListener {
-                    Toast.makeText(this, "शिकायत दर्ज करने में विफल!", Toast.LENGTH_SHORT).show()
+                .addOnFailureListener { exception ->
+                    AlertDialog.Builder(this)
+                        .setTitle("शिकायत दर्ज नहीं हुई")
+                        .setMessage("Error: ${exception.localizedMessage}")
+                        .setPositiveButton("ठीक है", null)
+                        .show()
                 }
         }
 
@@ -289,8 +349,30 @@ class MainActivity2 : AppCompatActivity() {
         }
     }
 
+    // Zone Matching Helper Function (Hindi & English Sabhi Ko Match Karega)
+    private fun normalizeZoneName(input: String): String {
+        return input.lowercase(Locale.ROOT)
+            .replace("टंकी", "")
+            .replace("हेडवर्क्स", "")
+            .replace("ज़ोन", "")
+            .replace("जोन", "")
+            .replace("jone", "")
+            .replace("zone", "")
+            .replace("area", "")
+            .replace("एरिया", "")
+            .replace("-", "")
+            .replace(" ", "")
+            .trim()
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val audioAttributes = AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .build()
+
             val channel = NotificationChannel(
                 "phed_supply_channel",
                 "Water Supply Alerts",
@@ -298,6 +380,7 @@ class MainActivity2 : AppCompatActivity() {
             ).apply {
                 description = "Water supply status alerts"
                 enableVibration(true)
+                setSound(soundUri, audioAttributes)
             }
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)
@@ -309,13 +392,12 @@ class MainActivity2 : AppCompatActivity() {
             val prefs = getSharedPreferences("phed_alarm_prefs", Context.MODE_PRIVATE)
             val lastAlarmTime = prefs.getLong("last_alarm_time", 0L)
             val currentTime = System.currentTimeMillis()
-            val fiveMinutesInMillis = 5 * 60 * 1000L
 
-            if (currentTime - lastAlarmTime >= fiveMinutesInMillis) {
+            if (currentTime - lastAlarmTime >= 3 * 60 * 1000L) {
                 val alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                     ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
                 val ringtone = RingtoneManager.getRingtone(applicationContext, alertUri)
-                ringtone.play()
+                ringtone?.play()
 
                 prefs.edit().putLong("last_alarm_time", currentTime).apply()
             }
@@ -323,8 +405,9 @@ class MainActivity2 : AppCompatActivity() {
             val builder = NotificationCompat.Builder(this, "phed_supply_channel")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle("🚰 पानी सप्लाई शुरू: $zoneName")
-                .setContentText("स्थिति: $status | समय: $timeNote")
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setContentText("स्थिति: $status" + if (timeNote.isNotEmpty()) " ($timeNote)" else "")
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setAutoCancel(true)
 
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -332,7 +415,6 @@ class MainActivity2 : AppCompatActivity() {
         } catch (_: Exception) {}
     }
 
-    // Auto-Update Function: Bina kisi crash ya download failure ke
     private fun checkForAppUpdate(db: FirebaseFirestore) {
         try {
             db.collection("stats").document("app_update").get()
@@ -353,7 +435,6 @@ class MainActivity2 : AppCompatActivity() {
                                 pInfo.versionCode
                             }
 
-                            // Sirf tabhi aayega jab aap Firebase me version bada karenge
                             if (latestVersion > currentVersion) {
                                 val downloadUrl = doc.getString("downloadUrl") ?: ""
                                 val msg = doc.getString("message") ?: "नया वर्ज़न उपलब्ध है! कृपया अपडेट करें"
